@@ -1,0 +1,19 @@
+# 构建产物
+bin/
+*.exe
+
+# 测试与性能分析
+*.test
+*.out
+*.prof
+
+# 日志
+logs/
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+.DS_Store
+
+# 本地配置
+etc/*.local.yaml

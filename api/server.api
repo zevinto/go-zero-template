@@ -1,0 +1,30 @@
+syntax = "v1"
+
+import "base.api"
+
+info (
+	title:   "Go Zero Template"
+	desc:    "Go Zero API"
+	version: "1.0.0"
+)
+
+type PingRequest {}
+
+type PingResponse {
+	Message string `json:"message"`
+}
+
+@server (
+	tags:   "健康检查"
+	prefix: /api
+	group:  health
+)
+service server {
+	@doc (
+		summary: "健康检查"
+		desc:    "服务存活与依赖健康探测"
+	)
+	@handler ping
+	get /ping (PingRequest) returns (PingResponse)
+}
+

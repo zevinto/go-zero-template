@@ -1,0 +1,25 @@
+info (
+	title:       "基础模块"
+	desc:        "统一响应格式、分页元数据、空响应"
+	description: "统一响应格式(code/message/data)、列表分页元数据与健康检查接口"
+	version:     "1.0.0"
+)
+
+type BaseResponse {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+type Empty {}
+
+type EmptyResponse {
+	BaseResponse
+	Data Empty `json:"data"`
+}
+
+type ListMeta {
+    Total int64 `json:"total"`
+    Page  int64 `json:"page"`
+    Size  int64 `json:"size"`
+}
+

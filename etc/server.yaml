@@ -1,0 +1,8 @@
+Name: server
+Host: 0.0.0.0
+Port: 8888
+
+# 按需开启，均为 RestConf 内置字段（完整列表见 go-zero/rest/config.go）：
+# Timeout: 3000       # 单请求超时(ms)，默认 2000
+# MaxConns: 2048      # 最大并发连接，默认 1024
+# CpuThreshold: 900   # CPU 过载保护阈值(千分比)，默认 900，设为 -1 关闭
