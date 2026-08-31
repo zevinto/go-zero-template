@@ -1,6 +1,6 @@
 // Package store 提供数据库的运行时连接工厂。
 // 连接实例由 svc 装配持有，logic 层经 ServiceContext 使用，不在业务代码中自建连接。
-// Redis 连接工厂见同级的 cache 包。
+// Redis 连接工厂见同级的 redisx 包。
 package store
 
 import (

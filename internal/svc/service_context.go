@@ -5,7 +5,7 @@ package svc
 
 import (
 	"github.com/zevinto/go-zero-template/internal/config"
-	"github.com/zevinto/go-zero-template/internal/infrastructure/cache"
+	"github.com/zevinto/go-zero-template/internal/infrastructure/redisx"
 	"github.com/zevinto/go-zero-template/internal/infrastructure/store"
 
 	"github.com/zeromicro/go-zero/core/logx"
@@ -29,7 +29,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	db, err := store.NewStore(c.Database)
 	logx.Must(err) // 配置了数据库但连不上 → 启动失败
 
-	rdb, err := cache.NewRedis(c.Redis)
+	rdb, err := redisx.NewRedis(c.Redis)
 	logx.Must(err)
 
 	return &ServiceContext{

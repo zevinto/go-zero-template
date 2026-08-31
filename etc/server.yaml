@@ -3,6 +3,7 @@ Host: 0.0.0.0
 Port: 8888
 
 # 按需开启，均为 RestConf 内置字段（完整列表见 go-zero/rest/config.go）：
+# Mode: pro           # dev/test/rt/pre 会自动关闭负载保护与指标上报；默认 pro
 # Timeout: 3000       # 单请求超时(ms)，默认 2000
 # MaxConns: 2048      # 最大并发连接，默认 1024
 # CpuThreshold: 900   # CPU 过载保护阈值(千分比)，默认 900，设为 -1 关闭
@@ -14,7 +15,7 @@ Port: 8888
 #   Host: localhost
 #   Port: 5432               # 留 0 按 Adapter 取默认端口（postgres 5432 / mysql 3306）
 #   Username: postgres
-#   Password: postgres
+#   Password: ${DB_PASSWORD} #   密钥走环境变量（本地放 .env，见 .env.example）
 #   Name: app                # 数据库名
 #   Params:                  # 附加连接参数，键值对追加到连接串 query。
 #     ---- mysql ----
@@ -32,3 +33,15 @@ Port: 8888
 #   Host: localhost:6379
 #   Type: node              # node / cluster
 #   Pass: xxx
+
+# 配置中心 Apollo（可选，基于官方 SDK github.com/apolloconfig/agollo/v5；
+# MetaAddr 未配置即不接入，本地 yaml 为准）：
+# Apollo:
+#   AppID: gzt-server
+#   Cluster: default
+#   MetaAddr: http://apollo-meta.local:8080
+#   Namespaces: [application, db]   # 顺序即覆盖顺序，后者覆盖前者
+#   TimeoutSec: 3                   # 单次同步超时（秒），默认 3
+#   BackupConfigPath: ""            # SDK 本地备份缓存目录；空取系统临时目录
+#   # Apollo 中的 key 使用小写点分路径覆盖本地配置，如 database.password=xxx
+#   # 非 dev 环境拉取失败会启动失败；dev（Mode: dev）降级为本地 yaml

@@ -30,8 +30,9 @@ internal/
 ├── logic/           # 业务逻辑层（写在这里）
 ├── infrastructure/  # 技术接入层（可替换的技术细节）
 │   ├── store/       #   数据库连接工厂（连接池、ping、可选依赖语义）
-│   ├── cache/       #   Redis 连接工厂与缓存二次封装（锁/幂等/限流）
-│   └── migrate/     #   golang-migrate 封装（按 Adapter 支持 postgres/mysql）
+│   ├── redisx/      #   Redis 连接工厂与缓存二次封装（锁/幂等/限流）
+│   ├── migrate/     #   golang-migrate 封装（按 Adapter 支持 postgres/mysql）
+│   └── apollo/      #   配置中心接入（官方 agollo/v5 SDK，冷加载）
 ├── svc/             # ServiceContext：依赖注入点（DB/Redis 客户端挂这里）
 ├── types/           # 请求/响应类型（goctl 生成）
 ├── xerror/          # 业务错误码与错误类型
@@ -47,14 +48,16 @@ scripts/
 
 ### infrastructure 的边界
 
-只收"换一个实现、业务代码不用改"的技术细节：连接工厂（`store/` 数据库、`cache/` Redis）、迁移（`migrate/`）、第三方服务客户端（将来建 `integration/`，如企微/邮件）。
+只收"换一个实现、业务代码不用改"的技术细节：连接工厂（`store/` 数据库、`redisx/` Redis）、迁移（`migrate/`）、配置中心（`apollo/`）、第三方服务客户端（将来建 `integration/`，如企微/邮件）。
 
 不收：`handler/types`（goctl 交付层）、`logic`（业务编排）、`x*`（HTTP 约定）、`middleware`（HTTP 管道，贴 handler 走）。
 
-### store 与 cache 的职责
+> `apollo/` 与将来 `integration/` 的分界：Apollo 提供的是**运行配置**（启动即定、全局生效），属基础设施，进 `infrastructure/`；`integration/` 只放**业务主动调用**的第三方服务客户端（发企微、发邮件等），两者不冲突。将来引入 integration 时按此归属。
+
+### store 与 redisx 的职责
 
 - `store/`：只放数据库连接的生老病死——工厂、DSN、连接池、ping。二次封装（事务包装 `WithTx`、outbox 基础等）出现时建 `infrastructure/database/`；
-- `cache/`：Redis 连接工厂与缓存二次封装（分布式锁、幂等键、限流器）同包。包名与 go-zero 的 `core/stores/cache` 重名，同一文件同时引用两者时加 import 别名；
+- `redisx/`：Redis 连接工厂与缓存二次封装（分布式锁、幂等键、限流器）同包。命名为 `redisx` 而非 `cache`，避免与 go-zero 的 `core/stores/cache` 重名而需反复加 import 别名；
 - 业务查询/写入永远在 `internal/model/`（如 GetUserByID），不进 infrastructure。
 
 拆分触发信号：某个改动要在 store 里加"非工厂"的 DB 代码，或 model 层开始重复事务样板——出现即为建 `database/` 的时机，在那之前保持现状。
@@ -149,6 +152,10 @@ type RegisterRequest {
 
 新增自定义规则：在 `internal/xvalidator/validator.go` 中 `v.RegisterValidation(...)` 注册，并在 `tagDesc` 补充可读文案。
 
+## 环境变量
+
+配置值支持 `${VAR}` 形式引用环境变量（如 `Password: ${DB_PASSWORD}`），`conf.UseEnv()` 已在两个入口启用。本地开发把变量放在 `.env`（已 gitignore，模板见 `.env.example`，启动时由 godotenv 注入）；`.env` 不覆盖已存在的环境变量，生产环境由部署平台注入并优先生效。
+
 ## 数据库迁移
 
 使用 [golang-migrate](https://github.com/golang-migrate/migrate) 版本化迁移，SQL 通过 embed 打进二进制。
@@ -171,6 +178,26 @@ type RegisterRequest {
 3. 执行：`make migrate-up`（回滚 `make migrate-down`，查看版本 `make migrate-version`）。
 
 注意 golang-migrate 的 dirty 语义：迁移中途失败会置 dirty 标记并拒绝后续执行，需修复问题后手动处理（这是选择该工具换来的运维模型，详细差异见工具文档）。
+
+## 配置中心（Apollo）
+
+支持接入 Apollo 做配置托管，**冷加载**模式：启动时拉取一次，改配置走重启（热更新为扩展点）。
+
+1. `etc/server.yaml` 配置引导段（MetaAddr 未配置即不接入）：
+
+   ```yaml
+   Apollo:
+     AppID: gzt-server
+     Cluster: default
+     MetaAddr: http://apollo-meta.local:8080
+     Namespaces: [application, db]   # 顺序即覆盖顺序
+     TimeoutSec: 3                   # 单次同步超时（秒），默认 3
+   ```
+
+2. Apollo 中的 key 使用小写点分路径，与本地 yaml 的字段路径对齐（如 `database.password=xxx` 对应 `Database.Password`），拉取后覆盖加载进 config struct；
+3. 失败策略按 `Mode` 分流：**非 dev 拉取失败直接启动失败**（不用过期缓存悄悄跑）；`Mode: dev` 降级为本地 yaml，本地开发不被配置中心绑架。
+
+实现说明：基于官方 SDK `github.com/apolloconfig/agollo/v5`，由 SDK 统一处理 Meta 服务发现与本地备份缓存容灾。冷加载通过「拉取完成后 `Close` 客户端、停掉长轮询 goroutine」实现（`internal/infrastructure/apollo`，`Fetch` 返回前 close 即冷加载）；将来需要热更新时，去掉 `Close` 改常驻客户端 + `AddChangeListener` 即可。值不做环境变量展开，密钥仍走 env 注入（`.env` / 部署平台）。
 
 ## 测试示例
 

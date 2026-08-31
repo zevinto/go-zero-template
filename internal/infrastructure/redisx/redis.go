@@ -1,9 +1,9 @@
-// Package cache 提供 Redis 连接工厂与缓存相关二次封装（分布式锁、幂等键、限流器等）。
+// Package redisx 提供 Redis 连接工厂与缓存相关二次封装（分布式锁、幂等键、限流器等）。
 // 连接实例由 svc 装配持有，logic 层经 ServiceContext 使用。
 //
-// 包名与 go-zero 的 core/stores/cache 重名：同一文件同时引用两者时，
-// 需为其中一方加 import 别名。
-package cache
+// 命名前缀 x 与 xerror/xresponse/xvalidator 等包一致：包名自定义、非 go-zero 原生，
+// 避免与 go-zero 的 core/stores/cache 重名而需反复 import 别名。
+package redisx
 
 import (
 	"github.com/zeromicro/go-zero/core/stores/redis"

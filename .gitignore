@@ -15,5 +15,8 @@ logs/
 .vscode/
 .DS_Store
 
+# 本地环境变量（含密钥，不入库；模板见 .env.example）
+.env
+
 # 本地配置
 etc/*.local.yaml

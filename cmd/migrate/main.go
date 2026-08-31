@@ -8,15 +8,21 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 
+	"github.com/joho/godotenv"
+
 	"github.com/zevinto/go-zero-template/internal/config"
+	"github.com/zevinto/go-zero-template/internal/infrastructure/apollo"
 	"github.com/zevinto/go-zero-template/internal/infrastructure/migrate"
 	"github.com/zevinto/go-zero-template/migrations"
 
 	"github.com/zeromicro/go-zero/core/conf"
+	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/service"
 )
 
 func main() {
@@ -24,13 +30,29 @@ func main() {
 	steps := flag.Int("steps", 1, "steps for down")
 	flag.Parse()
 
+	_ = godotenv.Load()
+
 	command := flag.Arg(0)
 	if command == "" {
 		fatal("用法: migrate [-f 配置文件] up|down|version [-steps N]")
 	}
 
 	var c config.Config
-	conf.MustLoad(*configFile, &c)
+	conf.MustLoad(*configFile, &c, conf.UseEnv())
+
+	// 配置中心（冷加载）：非 dev 拉取失败即退出；dev 降级为本地 yaml
+	if c.Apollo.MetaAddr != "" {
+		remote, err := apollo.Fetch(context.Background(), c.Apollo)
+		switch {
+		case err != nil && c.Mode == service.DevMode:
+			logx.Errorf("拉取配置中心失败，降级为本地配置: %v", err)
+		case err != nil:
+			fatal("拉取配置中心失败: %v", err)
+		default:
+			logx.Must(apollo.Overlay(*configFile, remote, &c))
+		}
+	}
+
 	if c.Database.Adapter == "" {
 		fatal("配置缺少 Database.Adapter（可选: postgres, mysql），见 etc/server.yaml 中 Database 段示例")
 	}
