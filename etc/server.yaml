@@ -6,3 +6,29 @@ Port: 8888
 # Timeout: 3000       # 单请求超时(ms)，默认 2000
 # MaxConns: 2048      # 最大并发连接，默认 1024
 # CpuThreshold: 900   # CPU 过载保护阈值(千分比)，默认 900，设为 -1 关闭
+
+# 数据库连接（迁移与运行时共用），通过 Adapter 切换数据库类型。
+# 默认注释：数据库/Redis 均为可选依赖，启用后启动时会 ping，连不上则启动失败。
+# Database:
+#   Adapter: postgres        # postgres / mysql
+#   Host: localhost
+#   Port: 5432               # 留 0 按 Adapter 取默认端口（postgres 5432 / mysql 3306）
+#   Username: postgres
+#   Password: postgres
+#   Name: app                # 数据库名
+#   Params:                  # 附加连接参数，键值对追加到连接串 query。
+#     ---- mysql ----
+#     charset: utf8mb4       #   建议首日就配；运行时还需 parseTime: "true" + loc: Local
+#     tls / timeout          #   可不配：默认能连，出问题时报错明确，届时再配
+#     ---- postgres ----
+#     sslmode: disable       #   本机/内网可用；跨不可信网络应升级 verify-full
+#   连接池（零值取默认 100 / 10 / 1800s）：
+#   MaxOpenConns: 100
+#   MaxIdleConns: 10
+#   ConnMaxLifetimeSec: 1800
+
+# Redis（可选，不配置则 ServiceContext.RDB 为 nil）：
+# Redis:
+#   Host: localhost:6379
+#   Type: node              # node / cluster
+#   Pass: xxx

@@ -22,29 +22,59 @@ api/                 # API 定义（.api 文件）
 ├── server.api       # 服务入口：路由与分组定义
 └── base.api         # 公共类型：分页元信息等
 cmd/server/main.go   # 启动入口：加载配置、安装响应包装、注册路由
+cmd/migrate/main.go  # 迁移命令：up / down / version
 etc/server.yaml      # 配置文件
 internal/
 ├── config/          # 配置结构体
 ├── handler/         # HTTP 层（goctl 生成，不含业务）
 ├── logic/           # 业务逻辑层（写在这里）
+├── infrastructure/  # 技术接入层（可替换的技术细节）
+│   ├── store/       #   数据库连接工厂（连接池、ping、可选依赖语义）
+│   ├── cache/       #   Redis 连接工厂与缓存二次封装（锁/幂等/限流）
+│   └── migrate/     #   golang-migrate 封装（按 Adapter 支持 postgres/mysql）
 ├── svc/             # ServiceContext：依赖注入点（DB/Redis 客户端挂这里）
 ├── types/           # 请求/响应类型（goctl 生成）
 ├── xerror/          # 业务错误码与错误类型
 ├── xvalidator/      # 参数校验（go-playground/validator 包装）
 └── xresponse/       # 统一响应包装（安装到 httpx）
+migrations/          # SQL 迁移文件（embed 进二进制）
+scripts/
 ```
+
+## 架构约定
+
+分层依赖方向：`config → infrastructure → svc → logic`。`xerror / xresponse / xvalidator` 是 HTTP 交付约定层，与 infrastructure 平级，互不归属。
+
+### infrastructure 的边界
+
+只收"换一个实现、业务代码不用改"的技术细节：连接工厂（`store/` 数据库、`cache/` Redis）、迁移（`migrate/`）、第三方服务客户端（将来建 `integration/`，如企微/邮件）。
+
+不收：`handler/types`（goctl 交付层）、`logic`（业务编排）、`x*`（HTTP 约定）、`middleware`（HTTP 管道，贴 handler 走）。
+
+### store 与 cache 的职责
+
+- `store/`：只放数据库连接的生老病死——工厂、DSN、连接池、ping。二次封装（事务包装 `WithTx`、outbox 基础等）出现时建 `infrastructure/database/`；
+- `cache/`：Redis 连接工厂与缓存二次封装（分布式锁、幂等键、限流器）同包。包名与 go-zero 的 `core/stores/cache` 重名，同一文件同时引用两者时加 import 别名；
+- 业务查询/写入永远在 `internal/model/`（如 GetUserByID），不进 infrastructure。
+
+拆分触发信号：某个改动要在 store 里加"非工厂"的 DB 代码，或 model 层开始重复事务样板——出现即为建 `database/` 的时机，在那之前保持现状。
+
+### domain 与 middleware
+
+- `middleware/`：HTTP 中间件（鉴权、限流等），属请求管道，不进 infrastructure；
+- `domain/`：出现"有行为、有不变量"的领域逻辑（状态机、库存扣减规则）时再启用；纯 CRUD 阶段保持空置，不要为分层而分层。
 
 ## 常用命令
 
-| 命令        | 说明                              |
-| ----------- | --------------------------------- |
-| make api    | 根据 api/*.api 重新生成代码       |
-| make run    | 本地启动（默认 etc/server.yaml）  |
-| make build  | 编译到 bin/server                 |
-| make test   | 运行测试                          |
-| make vet    | go vet 静态检查                   |
-| make lint   | golangci-lint                     |
-| make clean  | 清理构建产物                      |
+| 命令       | 说明                             |
+| ---------- | -------------------------------- |
+| make api   | 根据 api/*.api 重新生成代码      |
+| make run   | 本地启动（默认 etc/server.yaml） |
+| make build | 编译到 bin/server                |
+| make test  | 运行测试                         |
+| make vet   | go vet 静态检查                  |
+| make lint  | golangci-lint                    |
+| make clean | 清理构建产物                     |
 
 ## 新增一个接口
 
@@ -90,12 +120,12 @@ return nil, xerror.Wrap(err, xerror.CodeInternal, "订单保存失败，请稍�
 
 ### 错误码约定
 
-| 分段        | 含义                                          |
-| ----------- | --------------------------------------------- |
-| 0           | 成功                                          |
-| 10000–39999 | 业务模块专属段：每模块占用一整千位区间        |
+| 分段        | 含义                                           |
+| ----------- | ---------------------------------------------- |
+| 0           | 成功                                           |
+| 10000–39999 | 业务模块专属段：每模块占用一整千位区间         |
 | 40000–49999 | 客户端类：前三位镜像 HTTP 类别，末两位为顺序号 |
-| 50000–59999 | 服务端类                                      |
+| 50000–59999 | 服务端类                                       |
 
 常用客户端码：40000 参数错误、40100 未登录、40101 凭证无效、40300 无权限、40400 资源不存在、40900 冲突、42200 业务校验失败、42900 触发限流。
 
@@ -118,6 +148,29 @@ type RegisterRequest {
 ```
 
 新增自定义规则：在 `internal/xvalidator/validator.go` 中 `v.RegisterValidation(...)` 注册，并在 `tagDesc` 补充可读文案。
+
+## 数据库迁移
+
+使用 [golang-migrate](https://github.com/golang-migrate/migrate) 版本化迁移，SQL 通过 embed 打进二进制。
+
+1. 在 `etc/server.yaml` 配置连接信息，通过 `Adapter` 切换数据库类型（postgres / mysql）：
+
+   ```yaml
+   Database:
+     Adapter: postgres
+     Host: localhost
+     Port: 5432        # 留 0 按 Adapter 取默认端口
+     Username: postgres
+     Password: postgres
+     Name: app
+     # Params:         # 附加连接参数（sslmode / charset 等）
+     #   sslmode: disable
+   ```
+
+2. 新增迁移：在 `migrations/` 下成对创建 `NNNN_描述.up.sql` 和 `NNNN_描述.down.sql`（序号四位递增，如 `0002_add_order_status.up.sql`）；
+3. 执行：`make migrate-up`（回滚 `make migrate-down`，查看版本 `make migrate-version`）。
+
+注意 golang-migrate 的 dirty 语义：迁移中途失败会置 dirty 标记并拒绝后续执行，需修复问题后手动处理（这是选择该工具换来的运维模型，详细差异见工具文档）。
 
 ## 测试示例
 

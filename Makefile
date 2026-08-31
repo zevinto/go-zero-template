@@ -2,7 +2,7 @@ API_FILE := api/server.api
 SERVER_DIR := cmd/server
 SERVER_MAIN := $(SERVER_DIR)/main.go
 
-.PHONY: api build run test vet lint clean
+.PHONY: api build run test vet lint clean migrate-up migrate-down migrate-version
 
 api:
 	@echo "Generating API code from $(API_FILE)"
@@ -33,3 +33,12 @@ lint: ## golangci-lint（需自行安装）
 
 clean: ## 清理构建产物
 	rm -rf bin
+
+migrate-up: ## 应用全部待执行迁移（需配置 Database.Source）
+	go run ./cmd/migrate -f etc/server.yaml up
+
+migrate-down: ## 回滚 1 个版本（改 -steps 回滚多个）
+	go run ./cmd/migrate -f etc/server.yaml down -steps 1
+
+migrate-version: ## 查看当前 schema 版本与 dirty 状态
+	go run ./cmd/migrate -f etc/server.yaml version
