@@ -222,23 +222,13 @@ golang-migrate 的 dirty 语义：迁移中途失败会置 dirty 标记并拒绝
 
 ## 数据访问层（Model）
 
-数据库查询/写入统一收敛在 `internal/model/`，logic 层经 `ServiceContext` 上的 Model 实例访问，不直接手写 SQL（见「架构约定」）。
+数据库查询/写入统一收敛在 `internal/model/`，logic 层经 `ServiceContext` 上的 Model 实例访问，不直接手写裸 SQL（见「架构约定」）。
 
-**基于现有表生成**（goctl 连接数据库读真实表结构）：
-- `TABLE` 支持**逗号分隔多表**，每表各生成到**独立子目录**；
-- `DIR` 为公共根目录（可选），未传默认 `internal/model`。
+- **ORM**：本分支用 **gorm**（`gorm.io/gorm`）做数据访问。`ServiceContext.Gorm` 持有 `*gorm.DB`，各 model 经它链式查询（如 `internal/model/users`）。
+- **原生 SQL 保留**：`ServiceContext.DB`（go-zero 的 `sqlx.SqlConn`）仍保留，承载 gorm 不方便表达的复杂查询/既有逻辑，两者可并存。
+- **迁移边界**：schema 版本管理仍走 **golang-migrate**（时间戳命名），**不启用 gorm 的 AutoMigrate**，避免两套迁移体系冲突。
 
-```bash
-# 先安装 goctl，并用 make migrate-up（或 cmd/migrate up）把迁移应用到目标库
-make gen-model TABLE=users                          # 单表 → internal/model/users/
-make gen-model TABLE=users,orders,order_items       # 多表 → internal/model/{users,orders,order_items}/
-make gen-model TABLE=users DIR=x/model              # 指定根目录 → x/model/users/
-make gen-model TABLE=users DSN="postgres://u:p@host:5432/db?sslmode=disable"  # 指定连接串
-```
-
-生成产物：每个子目录下 `*_model_gen.go`（goctl 生成，DO NOT EDIT）、`*_model.go`（可扩展接口）、`vars.go`（错误定义）。新生成的 model 需在 `internal/svc/service_context.go` 里装配到 `ServiceContext` 后即可在 logic 使用。
-
-**注意**：本模板数据访问用**原生 SQL**（go-zero 的 `sqlx.SqlConn`），不引入 ORM（如 gorm）。复杂查询仍在 model 内用原生 `QueryRowCtx/QueryRowsCtx/ExecCtx` 编写。
+新 model 在 `internal/svc/service_context.go` 里装配到 `ServiceContext` 后即可在 logic 使用。
 
 ## 配置中心（Apollo）
 

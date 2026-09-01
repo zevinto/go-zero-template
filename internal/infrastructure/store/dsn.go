@@ -9,6 +9,7 @@ package store
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 
 	"github.com/zevinto/go-zero-template/internal/config"
@@ -55,12 +56,8 @@ func runtimeDSN(c config.DatabaseConf) (string, error) {
 			u.User = url.UserPassword(c.Username, c.Password)
 		}
 		params := make(map[string]string, len(c.Params)+len(mysqlDefaultParams))
-		for k, v := range mysqlDefaultParams {
-			params[k] = v
-		}
-		for k, v := range c.Params {
-			params[k] = v
-		}
+		maps.Copy(params, mysqlDefaultParams)
+		maps.Copy(params, c.Params)
 		u.RawQuery = encodeParams(params)
 		return u.String(), nil
 

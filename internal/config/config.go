@@ -50,4 +50,9 @@ type DatabaseConf struct {
 	MaxOpenConns       int `json:",optional"`
 	MaxIdleConns       int `json:",optional"`
 	ConnMaxLifetimeSec int `json:",optional"`
+
+	// GormLogLevel gorm SQL 日志级别：silent / error / warn / info。
+	// 空取 warn（只输出慢 SQL 与错误，推荐生产）；调试 SQL 可设 info。
+	// 日志统一由 go-zero 的 logx 承接（见 store/gorm.go）。
+	GormLogLevel string `json:",optional"`
 }
