@@ -27,6 +27,11 @@ type Config struct {
 	// Apollo 配置中心引导段：MetaAddr 未配置表示不接入（本地 yaml 为准）。
 	// 接入后非 dev 环境启动时拉取并覆盖加载；dev 拉取失败降级为本地 yaml。
 	Apollo apollo.Conf `json:",optional"`
+
+	// MigrateOnStart 是否在服务启动时自动应用数据库迁移（单实例内部系统适用）。
+	// 默认 false：推荐在部署流水线显式迁移后再启动服务，避免多实例并发迁移；
+	// 单实例或开发环境可置 true，随服务启动自动 up 到最新。
+	MigrateOnStart bool `json:",optional"`
 }
 
 type DatabaseConf struct {

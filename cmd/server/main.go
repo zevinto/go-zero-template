@@ -6,15 +6,18 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 
 	"github.com/joho/godotenv"
 
 	"github.com/zevinto/go-zero-template/internal/config"
 	"github.com/zevinto/go-zero-template/internal/handler"
 	"github.com/zevinto/go-zero-template/internal/infrastructure/apollo"
+	"github.com/zevinto/go-zero-template/internal/infrastructure/migrate"
 	"github.com/zevinto/go-zero-template/internal/svc"
 	"github.com/zevinto/go-zero-template/internal/xresponse"
 	"github.com/zevinto/go-zero-template/internal/xvalidator"
+	"github.com/zevinto/go-zero-template/migrations"
 
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -48,6 +51,18 @@ func main() {
 
 	httpx.SetValidator(xvalidator.New())
 	xresponse.Setup()
+
+	// 单实例内部系统：可选在启动时自动应用数据库迁移（配置 MigrateOnStart: true）。
+	// 需同时配置 Database 连接；迁移失败则启动失败（fail-fast），避免带错误 schema 起服务。
+	if c.MigrateOnStart {
+		if c.Database.Adapter == "" {
+			logx.Must(fmt.Errorf("MigrateOnStart=true 但未配置 Database.Adapter（可选: postgres, mysql）"))
+		}
+		dsn, err := migrate.SourceURL(c.Database)
+		logx.Must(err)
+		logx.Must(migrate.Migrate(migrations.FS, dsn))
+		logx.Info("数据库迁移已应用到最新版本")
+	}
 
 	server := rest.MustNewServer(c.RestConf)
 

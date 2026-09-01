@@ -21,8 +21,8 @@ go-zero 单体服务模板：统一的目录结构、统一响应格式 `{code, 
 api/                 # API 定义（.api 文件）
 ├── server.api       # 服务入口：路由与分组定义
 └── base.api         # 公共类型：分页元信息等
-cmd/server/main.go   # 启动入口：加载配置、安装响应包装、注册路由
-cmd/migrate/main.go  # 迁移命令：up / down / version
+cmd/server/main.go   # 启动入口：加载配置、安装响应包装、注册路由（可选启动自动迁移）
+cmd/migrate/main.go  # 迁移命令：up / down / migrate / version / force（生成文件改用官方 CLI）
 etc/server.yaml      # 配置文件
 internal/
 ├── config/          # 配置结构体
@@ -78,6 +78,17 @@ scripts/
 | make vet   | go vet 静态检查                  |
 | make lint  | golangci-lint                    |
 | make clean | 清理构建产物                     |
+
+迁移命令（详见「数据库迁移」）：
+
+| 命令                       | 说明                                        |
+| -------------------------- | ------------------------------------------- |
+| make migrate-create NAME=x | 用官方 golang-migrate CLI 生成时间戳命名的迁移（需先装 CLI） |
+| make migrate-up            | 应用全部待执行迁移                          |
+| make migrate-down          | 回滚 1 个版本（改 --steps N 回滚多个）     |
+| make migrate-to V=\<n\>     | 精确迁移到指定版本（可上可下，跨版本步进）    |
+| make migrate-version       | 查看当前版本与 dirty 状态                   |
+| make migrate-force V=\<n\>  | 修复 dirty 状态，强制改写版本号（V=-1 清空） |
 
 ## 新增一个接口
 
@@ -174,10 +185,39 @@ type RegisterRequest {
      #   sslmode: disable
    ```
 
-2. 新增迁移：在 `migrations/` 下成对创建 `NNNN_描述.up.sql` 和 `NNNN_描述.down.sql`（序号四位递增，如 `0002_add_order_status.up.sql`）；
-3. 执行：`make migrate-up`（回滚 `make migrate-down`，查看版本 `make migrate-version`）。
+2. 新增迁移：请先安装 golang-migrate CLI（`brew install golang-migrate` 或 `go install github.com/golang-migrate/migrate/v4/cmd/migrate@latest`），然后 `make migrate-create NAME=add_order_status` 用官方 CLI 生成**时间戳命名**的 `YYYYMMDDHHMMSS_add_order_status.up.sql` / `.down.sql`；再在 `.up.sql` 写变更、`.down.sql` 写回滚；
+3. 执行：`make migrate-up`（回滚 `make migrate-down`，精确迁移 `make migrate-to V=<n>`，查看版本 `make migrate-version`）。
 
-注意 golang-migrate 的 dirty 语义：迁移中途失败会置 dirty 标记并拒绝后续执行，需修复问题后手动处理（这是选择该工具换来的运维模型，详细差异见工具文档）。
+> **启动时自动迁移（可选）**：单实例内部系统可配置 `MigrateOnStart: true`，服务启动时自动 `up` 到最新（需同时配置 `Database` 段）。默认关闭，推荐在部署流程统一显式迁移。
+
+### Migrate CLI 命令一览（`go run ./cmd/migrate -f etc/server.yaml <cmd>`）
+
+> 迁移文件的**生成**用官方 golang-migrate CLI（`migrate create -ts ...`，见「数据库迁移」）；`cmd/migrate` 只负责执行与查看。
+> 每个子命令都有独立帮助：`migrate --help` 看命令总览，`migrate <cmd> --help` 看该命令的详细用法、示例与参数说明。
+
+| 命令                | 说明                                                        |
+| ------------------- | ----------------------------------------------------------- |
+| `up`                | 应用全部待执行迁移                                          |
+| `down --steps N`   | 回滚 N 个版本（N 省略默认 1）                               |
+| `migrate <version>` | 精确迁移到指定版本（可上可下，适合跨版本分阶段升级、先停在中间版本做校验） |
+| `version`           | 查看当前版本与 dirty 状态                                   |
+| `force <version>`   | 修复 dirty 状态：强制改写版本号（`-1` 清空版本记录）        |
+
+### dirty 状态的修复流程
+
+golang-migrate 的 dirty 语义：迁移中途失败会置 dirty 标记并拒绝后续执行。这是选择该工具换来的运维模型（保证不"半路上"到不可知状态）。恢复步骤：
+
+1. `make migrate-version` 查看当前版本与 dirty；
+2. 人工核查 000x 失败迁移的 up/down SQL，确认数据库实际落到的正确版本号；
+3. 用 `make migrate-force V=<正确版本号>` 强制改写 schema 版本、清除 dirty；
+4. 再 `make migrate-up` 继续执行剩余迁移。
+
+### 为什么不暴露 drop / run
+
+- **`drop`**：清空所有表，属生产核弹。不暴露到命令门，避免误触；确需清库时用 DBA 手动 SQL 或结合迁移文件精确倒推。
+- **`run`**：对任意 SQL 片段执行且**不记录版本**，会破坏 dirty/版本语义，无需作为命令引入。
+
+> golang-migrate 底层还有 `Close`（连接释放，本命令已在内部 `defer` 处理）与 `Migrate`/`Steps`（`migrate`/`down` 命令的前身接口），均不单列暴露。
 
 ## 配置中心（Apollo）
 

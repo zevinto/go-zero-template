@@ -63,6 +63,37 @@ func MigrateVersion(fsys fs.FS, dsn string) (version uint, dirty bool, err error
 	return version, dirty, nil
 }
 
+// MigrateTo 精确迁移到指定版本（可上可下）。已在目标版本时视为成功（ErrNoChange）。
+// dirty 状态下返回 golang-migrate 的 ErrDirty，需先 Force 修复版本号再继续。
+func MigrateTo(fsys fs.FS, dsn string, version uint) error {
+	m, err := newMigrator(fsys, dsn)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+
+	if err := m.Migrate(version); err != nil && !errors.Is(err, gmmigrate.ErrNoChange) {
+		return fmt.Errorf("migrate to %d: %w", version, err)
+	}
+	return nil
+}
+
+// Force 把 schema 版本号强制改写为 version（不含 dirty 标记），用于修复 dirty 状态。
+// version 需为目标迁移文件的版本号；传 -1 表示不做任何版本记录（清空版本表条目）。
+// 使用前务必确认目标版本与迁移文件一致，否则会导致版本错位。
+func Force(fsys fs.FS, dsn string, version int) error {
+	m, err := newMigrator(fsys, dsn)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+
+	if err := m.Force(version); err != nil {
+		return fmt.Errorf("force version to %d: %w", version, err)
+	}
+	return nil
+}
+
 func newMigrator(fsys fs.FS, dsn string) (*gmmigrate.Migrate, error) {
 	source, err := iofs.New(fsys, ".")
 	if err != nil {
