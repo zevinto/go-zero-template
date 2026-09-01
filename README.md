@@ -89,6 +89,7 @@ scripts/
 | make migrate-to V=\<n\>     | 精确迁移到指定版本（可上可下，跨版本步进）    |
 | make migrate-version       | 查看当前版本与 dirty 状态                   |
 | make migrate-force V=\<n\>  | 修复 dirty 状态，强制改写版本号（V=-1 清空） |
+| make gen-model TABLE=users,orders | 基于现有表用 goctl 生成 model，每表独立子目录到 internal/model |
 
 ## 新增一个接口
 
@@ -218,6 +219,26 @@ golang-migrate 的 dirty 语义：迁移中途失败会置 dirty 标记并拒绝
 - **`run`**：对任意 SQL 片段执行且**不记录版本**，会破坏 dirty/版本语义，无需作为命令引入。
 
 > golang-migrate 底层还有 `Close`（连接释放，本命令已在内部 `defer` 处理）与 `Migrate`/`Steps`（`migrate`/`down` 命令的前身接口），均不单列暴露。
+
+## 数据访问层（Model）
+
+数据库查询/写入统一收敛在 `internal/model/`，logic 层经 `ServiceContext` 上的 Model 实例访问，不直接手写 SQL（见「架构约定」）。
+
+**基于现有表生成**（goctl 连接数据库读真实表结构）：
+- `TABLE` 支持**逗号分隔多表**，每表各生成到**独立子目录**；
+- `DIR` 为公共根目录（可选），未传默认 `internal/model`。
+
+```bash
+# 先安装 goctl，并用 make migrate-up（或 cmd/migrate up）把迁移应用到目标库
+make gen-model TABLE=users                          # 单表 → internal/model/users/
+make gen-model TABLE=users,orders,order_items       # 多表 → internal/model/{users,orders,order_items}/
+make gen-model TABLE=users DIR=x/model              # 指定根目录 → x/model/users/
+make gen-model TABLE=users DSN="postgres://u:p@host:5432/db?sslmode=disable"  # 指定连接串
+```
+
+生成产物：每个子目录下 `*_model_gen.go`（goctl 生成，DO NOT EDIT）、`*_model.go`（可扩展接口）、`vars.go`（错误定义）。新生成的 model 需在 `internal/svc/service_context.go` 里装配到 `ServiceContext` 后即可在 logic 使用。
+
+**注意**：本模板数据访问用**原生 SQL**（go-zero 的 `sqlx.SqlConn`），不引入 ORM（如 gorm）。复杂查询仍在 model 内用原生 `QueryRowCtx/QueryRowsCtx/ExecCtx` 编写。
 
 ## 配置中心（Apollo）
 

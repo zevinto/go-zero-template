@@ -2,7 +2,11 @@ API_FILE := api/server.api
 SERVER_DIR := cmd/server
 SERVER_MAIN := $(SERVER_DIR)/main.go
 
-.PHONY: api build run test vet lint clean migrate-create migrate-up migrate-down migrate-to migrate-version migrate-force
+# goctl model 生成数据源默认连接串（本地 postgres app 库）。
+# 改库请在命令行覆盖：make gen-model ... DSN="postgres://user:pwd@host:port/db?sslmode=disable"
+GEN_MODEL_DSN := postgres://postgres:$(if $(DB_PASSWORD),$(DB_PASSWORD),postgres)@localhost:5432/app?sslmode=disable
+
+.PHONY: api build run test vet lint clean gen-model migrate-create migrate-up migrate-down migrate-to migrate-version migrate-force
 
 api:
 	@echo "Generating API code from $(API_FILE)"
@@ -36,13 +40,39 @@ clean: ## 清理构建产物
 
 # 用法: make migrate-create NAME=add_order_status  用官方 golang-migrate CLI 生成时间戳命名的迁移
 # 前提：已安装 golang-migrate CLI（brew install golang-migrate 或 go install github.com/golang-migrate/migrate/v4/cmd/migrate@latest）
+# 注意：新版 CLI 默认即时间戳命名（-format 20060102150405），无需 -seq/-ts
 migrate-create:
 	@if ! command -v migrate >/dev/null 2>&1; then \
 		echo "错误: 未安装 golang-migrate CLI，请先安装:"; \
 		echo "  brew install golang-migrate   # 或 go install github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; \
 		exit 1; \
 	fi
-	migrate create -ext sql -dir migrations -ts $(NAME)
+	migrate create -ext sql -dir migrations $(NAME)
+
+# 用法: make gen-model TABLE=users  基于现有表生成 model（需先跑迁移建表）
+#   - TABLE 支持逗号分隔多表，每表各生成到独立子目录：
+#       TABLE=users,orders           → internal/model/users/ + internal/model/orders/
+#   - DIR 作为公共根目录（可选）：
+#       TABLE=users,orders DIR=internal/model  → internal/model/users/ + internal/model/orders/
+#   - 单表时不传 DIR，默认 internal/model/<表名>
+# 数据源连接串用 DSN 变量覆盖（默认本地 app 库，postgres)；需提前安装 goctl（参见 README 环境要求）
+GEN_MODEL_ROOT = $(if $(strip $(DIR)),$(DIR),internal/model)
+gen-model:
+	@if ! command -v goctl >/dev/null 2>&1; then \
+		echo "错误: 未安装 goctl，请先安装（见 README 环境要求）"; \
+		exit 1; \
+	fi
+	@if [ -z "$(TABLE)" ]; then \
+		echo "用法: make gen-model TABLE=表1[,表2,...] [DIR=目标根目录]"; \
+		echo "示例: make gen-model TABLE=users                # 生成到 internal/model/users"; \
+		echo "      make gen-model TABLE=users,orders         # 生成到 internal/model/users + /orders"; \
+		echo "      make gen-model TABLE=users DIR=x/model    # 生成到 x/model/users"; \
+		exit 1; \
+	fi
+	@set -e; for t in `echo "$(TABLE)" | tr ',' ' '`; do \
+		echo "生成 model: $$t -> $(GEN_MODEL_ROOT)/$$t"; \
+		goctl model pg datasource --url "$(GEN_MODEL_DSN)" -s public -t "$$t" -d "$(GEN_MODEL_ROOT)/$$t" --style=go_zero; \
+	done
 
 migrate-up: ## 应用全部待执行迁移（需配置 Database.Source）
 	go run ./cmd/migrate -f etc/server.yaml up

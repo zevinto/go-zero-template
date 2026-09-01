@@ -10,13 +10,13 @@ Port: 8888
 
 # 数据库连接（迁移与运行时共用），通过 Adapter 切换数据库类型。
 # 默认注释：数据库/Redis 均为可选依赖，启用后启动时会 ping，连不上则启动失败。
-# Database:
-#   Adapter: postgres        # postgres / mysql
-#   Host: localhost
-#   Port: 5432               # 留 0 按 Adapter 取默认端口（postgres 5432 / mysql 3306）
-#   Username: postgres
-#   Password: ${DB_PASSWORD} #   密钥走环境变量（本地放 .env，见 .env.example）
-#   Name: app                # 数据库名
+Database:
+  Adapter: postgres # postgres / mysql
+  Host: localhost
+  Port: 5432 # 留 0 按 Adapter 取默认端口（postgres 5432 / mysql 3306）
+  Username: postgres
+  Password: ${DATABASE_PASSWORD} #   密钥走环境变量（本地放 .env，见 .env.example）
+  Name: app # 数据库名
 #   Params:                  # 附加连接参数，键值对追加到连接串 query。
 #     ---- mysql ----
 #     charset: utf8mb4       #   建议首日就配；运行时还需 parseTime: "true" + loc: Local
@@ -29,10 +29,10 @@ Port: 8888
 #   ConnMaxLifetimeSec: 1800
 
 # Redis（可选，不配置则 ServiceContext.RDB 为 nil）：
-# Redis:
-#   Host: localhost:6379
-#   Type: node              # node / cluster
-#   Pass: xxx
+Redis:
+  Host: localhost:6379
+  Type: node # node / cluster
+  Pass: ${REDIS_PASSWORD}
 
 # 配置中心 Apollo（可选，基于官方 SDK github.com/apolloconfig/agollo/v5；
 # MetaAddr 未配置即不接入，本地 yaml 为准）：
